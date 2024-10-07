@@ -2,8 +2,8 @@ from datetime import datetime, timedelta
 import asyncio
 from typing import List, Tuple
 
-from providers.crypto_exchange import CryptoExchangeProvider
-from models.market_frame import MarketFrame
+from providers.ccxt import CCXTProvider
+from models.market import MarketFrame
 
 
 class IntervalTimer:
@@ -12,7 +12,7 @@ class IntervalTimer:
 
     def __init__(
         self,
-        provider: CryptoExchangeProvider,
+        provider: CCXTProvider,
         pairs: List[Tuple[str, str]],
         timeframe_minutes=1,
     ):

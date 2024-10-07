@@ -1,7 +1,7 @@
 from typing import AsyncIterator, Protocol, List
 import asyncio
 
-from models.market_frame import MarketFrame
+from models.market import MarketFrame
 from models.transaction import Transaction
 
 

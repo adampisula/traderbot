@@ -1,87 +1,114 @@
-from typing import List, AsyncIterator
+from typing import List, Tuple, Dict
+from datetime import datetime
 
 from strategies.strategy import Strategy
-from models.market_frame import MarketFrame
-from models.market import Market
+from models.market import Market, MarketFrame, OHLCV
+from models.pair import Pair
 from models.transaction import OperationEnum, Transaction
-from providers.crypto_exchange import CryptoExchangeProvider
+from providers.ccxt import CCXTProvider
 
 
 class AverageCrossover(Strategy):
-    _past_window: Market = Market(frames=[])
-    _PAST_WINDOW_SIZE = 100
-    _provider: CryptoExchangeProvider
+    _history: Market = Market(frames=[])
 
-    _PAIRS = [
-        ("BTC", "USDT"),
-        ("BTC", "USDC"),
-        # ("BTC", "BUSD"),
-        ("BTC", "USDC"),
-        ("ETH", "USDT"),
-        ("ETH", "USDC"),
-        # ("ETH", "BUSD"),
-        ("BNB", "USDT"),
-        ("ADA", "USDT"),
-        ("SOL", "USDT"),
-        ("XRP", "USDT"),
-    ]
+    _provider: CCXTProvider
+    _pairs: List[Pair] = []
+    _sma_window: int
+    _fma_window: int
+    _timeframe_minutes: int
+    _jitter: float
+    _transaction_cost: float
+
+    _holding: Dict[Pair, bool] = {}
 
     def __init__(
         self,
-        timer: AsyncIterator[MarketFrame],
-        provider: CryptoExchangeProvider,
-        pairs: List[]
+        provider: CCXTProvider,
+        pairs: List[Pair],
+        sma_window=50,
+        fma_window=10,
+        timeframe_minutes=1,
+        jitter=0.005,
+        transaction_cost=0.00075,
     ):
-        self.timer = timer
         self._provider = provider
+        self._pairs = pairs
+        self._sma_window = sma_window
+        self._fma_window = fma_window
+        self._timeframe_minutes = timeframe_minutes
+        self._jitter = jitter
+        self._transaction_cost = transaction_cost
 
-    async def start(self):
-        async for frame in self.timer:
-            transactions = await self.execute(frame)
-            for transaction in transactions:
-                print(transaction)
+    def __calculate_fma(self, values: List[Tuple[int, OHLCV]]) -> float:
+        ohlcv = [v[1] for v in values]
 
-    async def execute(self, frame: MarketFrame) -> List[Transaction]:
-        if len(self._past_window.frames) < self._PAST_WINDOW_SIZE:
-            self._past_window = await self._provider.get_history(
-                self._PAIRS, self._PAST_WINDOW_SIZE, 1
+        fma_closes = [x.close for x in ohlcv][-1*self._fma_window:]
+        return sum(fma_closes) / len(fma_closes)
+
+    def __calculate_sma(self, values: List[Tuple[int, OHLCV]]) -> float:
+        ohlcv = [v[1] for v in values]
+
+        sma_closes = [x.close for x in ohlcv][-1*self._sma_window:]
+        return sum(sma_closes) / len(sma_closes)
+
+    # returns (Transactions, Logs, Function plots)
+    async def execute(self, frame: MarketFrame) -> Tuple[List[Transaction], Tuple[datetime, str], List[Tuple[datetime, str, float]]]:
+        transactions: List[Transaction] = []
+        logs: List[Tuple[datetime, str]] = []
+        function_plots: List[Tuple[datetime, str, float]] = []
+
+        if len(self._history.frames) < self._sma_window:
+            print("Getting history")
+            self._history = await self._provider.get_history(
+                pairs=self._pairs,
+                count=self._sma_window,
+                timeframe_minutes=self._timeframe_minutes,
             )
 
-        transaction_list: List[Transaction] = []
 
-        for pair in self._PAIRS:
-            # implement get_history in Market, then fetch last N frames for FMA and SMA
+        for pair in self._pairs:
+            history_ohclv = self._history.get_all_for_pair(pair)
+            timestamp, current_ohclv = frame.get_pair(pair)
 
-            fma_closes = [x.close for x in ohclv][self._PAST_WINDOW_SIZE - 9 :]
-            fma_closes = fma_closes + [frame.get_pair(f"{pair[0]}/{pair[1]}")[1].close]
-            fma_closes_mean = sum(fma_closes) / len(fma_closes)
+            fma = self.__calculate_fma(
+                values=history_ohclv+[(timestamp, current_ohclv)],
+            )
+            sma = self.__calculate_sma(
+                values=history_ohclv+[(timestamp, current_ohclv)],
+            )
 
-            sma_closes = [x.close for x in ohclv][self._PAST_WINDOW_SIZE - 49 :]
-            sma_closes = sma_closes + [frame.get_pair(f"{pair[0]}/{pair[1]}")[1].close]
-            sma_closes_mean = sum(sma_closes) / len(sma_closes)
+            function_plots.append((timestamp, f"{pair} FMA", fma))
+            function_plots.append((timestamp, f"{pair} SMA", sma))
 
-            transaction_cost = 0.00075
-            jitter = 0.005
+            buy_threshold = sma * (1 + self._transaction_cost + self._jitter)
+            # buy_threshold = sma 
+            sell_threshold = fma * (1 + self._transaction_cost + self._jitter)
+            # sell_threshold = fma
 
-            if fma_closes_mean > sma_closes_mean * (1 + transaction_cost + jitter):
-                transaction_list.append(
+
+            is_holding = self._holding.get(pair, False)
+
+            if fma > buy_threshold and not is_holding:
+                transactions.append(
                     Transaction(
-                        code=f"{pair[0]}/{pair[1]}",
+                        timestamp=timestamp,
+                        pair=pair,
                         operation=OperationEnum.BUY,
-                        amount=1,
-                        notes=f"Comparing {fma_closes_mean} and {sma_closes_mean} + {sma_closes_mean * transaction_cost}",
+                        notes=f"{fma} > {buy_threshold}",
                     )
                 )
-            elif fma_closes_mean * (1 + transaction_cost + jitter) < sma_closes_mean:
-                transaction_list.append(
+                self._holding[pair] = True
+            elif sma > sell_threshold and is_holding:
+                transactions.append(
                     Transaction(
-                        code=f"{pair[0]}/{pair[1]}",
+                        timestamp=timestamp,
+                        pair=pair,
                         operation=OperationEnum.SELL,
-                        amount=1,
-                        notes=f"Comparing {fma_closes_mean} and {sma_closes_mean} + {sma_closes_mean * transaction_cost}",
+                        notes=f"{sell_threshold} < {sma}",
                     )
                 )
-            else:
-                print(f"skipped {pair}")
+                self._holding[pair] = False
 
-        return transaction_list
+        self._history.frames = self._history.frames[-1*(self._sma_window-1):] + [frame]
+
+        return transactions, logs, function_plots

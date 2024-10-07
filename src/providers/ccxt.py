@@ -1,13 +1,13 @@
-from typing import List, Tuple
+from typing import List, Optional
 import ccxt.async_support as ccxt
 from datetime import datetime, timedelta
 
-from models.market import Market
-from models.market_frame import MarketFrame, OHLCV
+from models.market import Market, MarketFrame, OHLCV
 from models.pair import Pair
+from providers.crypto import CryptoProvider
 
 
-class CryptoExchangeProvider:
+class CCXTProvider(CryptoProvider):
     def __init__(self, apikey: str, secret: str, verbose=False):
         self._exchange = ccxt.binance(
             {
@@ -58,13 +58,43 @@ class CryptoExchangeProvider:
         return market_frame
 
     async def get_history(
-        self, pairs: List[Pair], count: int, timeframe_minutes=1
+        self,
+        pairs: List[Pair],
+        # use this (count)
+        count: Optional[int]=None,
+        # or this (since+until)
+        since: Optional[datetime]=None,
+        until: Optional[datetime]=None,
+        timeframe_minutes=1
     ) -> Market:
-        await self._exchange.load_markets()
+        ALLOWED_TIMEFRAMES = {
+            1: '1m',
+            3: '3m',
+            5: '5m',
+            15: '15m',
+            30: '30m',
+            60: '1h',
+            120: '2h',
+            240: '4h',
+            360: '6h',
+            480: '8h',
+            720: '12h',
+        }
 
-        timeframe_str = f"{timeframe_minutes}m"
-        since = datetime.now() - timedelta(minutes=(count + 1) * timeframe_minutes)
-        limit = count + 1
+        timeframe_str = ALLOWED_TIMEFRAMES.get(timeframe_minutes)
+        if not timeframe_str:
+            raise Exception("Invalid timeframe - see ALLOWED_TIMEFRAMES")
+
+        if since and until:
+            count = int((until - since).total_seconds() // (timeframe_minutes * 60))
+            print(count)
+        elif count:
+            since = datetime.now() - timedelta(minutes=(count+1)*timeframe_minutes)  # Fetch one more than needed
+            until = datetime.now() - timedelta(minutes=timeframe_minutes)  # Don't include the current frame
+        else:
+            raise Exception("Invalid arguments")
+
+        limit = count + 1 
 
         market_frames = [
             MarketFrame(
@@ -74,12 +104,17 @@ class CryptoExchangeProvider:
             for _ in range(count)
         ]
 
+        await self._exchange.load_markets()
         for pair in pairs:
             ohlcv = await self._exchange.fetch_ohlcv(
                 str(pair),
                 timeframe_str,
                 int(since.timestamp() * 1000),
                 limit,
+                params={
+                    "until": int(until.timestamp() * 1000),
+                    "paginate": True,
+                },
             )
 
             if len(ohlcv) != limit:
@@ -98,6 +133,3 @@ class CryptoExchangeProvider:
                 )
 
         return Market(frames=market_frames)
-
-    def get_ticker(self, symbol):
-        return self._exchange.fetch_ticker(symbol)

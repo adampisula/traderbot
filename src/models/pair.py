@@ -8,3 +8,9 @@ class Pair:
     
     def __str__(self):
         return f"{self.a}/{self.b}"
+    
+    def __eq__(self, other):
+        return self.a == other.a and self.b == other.b
+
+    def __hash__(self):
+        return hash(self.__str__())

@@ -1,6 +1,6 @@
 import asyncio
 
-from providers.crypto_exchange import CryptoExchangeProvider
+from providers.ccxt import CCXTProvider
 
 PAIRS = [
     ("BTC", "USDT"),
@@ -18,7 +18,7 @@ PAIRS = [
 
 
 async def main():
-    provider = CryptoExchangeProvider()
+    provider = CCXTProvider()
     market_frames = await provider.get_history(PAIRS)
     print(market_frames)
 
