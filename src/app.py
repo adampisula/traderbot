@@ -11,10 +11,10 @@ from models.pair import Pair
 
 async def main():
     dotenv.load_dotenv()
-    # timer: AsyncIterator[int] = IntervalTimer(3)
-    #
-    # async for val in timer:
-    #     print(val)
+    timer = IntervalTimer(3)
+    
+    async for val in timer:
+        print(val)
 
 
 async def fetch_market_data():

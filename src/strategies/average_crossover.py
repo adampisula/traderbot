@@ -27,7 +27,10 @@ class AverageCrossover(Strategy):
     ]
 
     def __init__(
-        self, timer: AsyncIterator[MarketFrame], provider: CryptoExchangeProvider
+        self,
+        timer: AsyncIterator[MarketFrame],
+        provider: CryptoExchangeProvider,
+        pairs: List[]
     ):
         self.timer = timer
         self._provider = provider
@@ -48,7 +51,6 @@ class AverageCrossover(Strategy):
 
         for pair in self._PAIRS:
             # implement get_history in Market, then fetch last N frames for FMA and SMA
-            ohclv = self._past_window.get_ohlcv(f"{pair[0]}/{pair[1]}")
 
             fma_closes = [x.close for x in ohclv][self._PAST_WINDOW_SIZE - 9 :]
             fma_closes = fma_closes + [frame.get_pair(f"{pair[0]}/{pair[1]}")[1].close]

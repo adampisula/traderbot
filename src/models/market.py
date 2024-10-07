@@ -31,7 +31,7 @@ class MarketFrame(BaseModel):
 class Market(BaseModel):
     frames: List[MarketFrame]
 
-    def get_all_for_pair(self, pair: Pair) -> List[Tuple(int, OHLCV)]:
+    def get_all_for_pair(self, pair: Pair) -> List[Tuple[int, OHLCV]]:
         return [frame.get_pair() for frame in self.frames]
 
     def save_to_file(self, filename: str) -> None:
