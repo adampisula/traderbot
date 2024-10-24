@@ -3,18 +3,21 @@ from enum import Enum
 from typing import Optional
 from datetime import datetime
 
-from models.pair import Pair
+from models.symbol import Symbol
 
 class OperationEnum(Enum):
     BUY = "BUY"
     SELL = "SELL"
     SKIP = "SKIP"
 
+    def __eq__(self, other):
+        if isinstance(other, self.__class__):
+            return self.value == other.value
+        return False
+
 
 class Transaction(BaseModel):
-    model_config = ConfigDict(arbitrary_types_allowed=True)
-
     timestamp: datetime
     operation: OperationEnum
-    pair: Pair 
+    symbol: Symbol 
     notes: Optional[str] = None

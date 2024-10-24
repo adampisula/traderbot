@@ -1,13 +1,14 @@
-from typing import List, Optional
+from typing import List, Optional, Sequence, Tuple
+import typing
 import ccxt.async_support as ccxt
 from datetime import datetime, timedelta
 
-from models.market import Market, MarketFrame, OHLCV
-from models.pair import Pair
-from providers.crypto import CryptoProvider
+from models.market import Market, MarketFrame, OHLCV, OutputFrame
+from models.symbol import Pair
+from providers.provider import Provider
 
 
-class CCXTProvider(CryptoProvider):
+class CCXTProvider(Provider):
     def __init__(self, apikey: str, secret: str, verbose=False):
         self._exchange = ccxt.binance(
             {
@@ -18,7 +19,7 @@ class CCXTProvider(CryptoProvider):
         )
 
     async def get_current(
-        self, pairs: List[Pair], timeframe_minutes=1
+        self, symbols: List[Pair], timeframe_minutes=1
     ) -> MarketFrame:
         await self._exchange.load_markets()
 
@@ -27,11 +28,11 @@ class CCXTProvider(CryptoProvider):
         limit = 1
 
         market_frame = MarketFrame(
-            timestamp=-1,
+            timestamp=datetime.fromtimestamp(0),
             ohlcv={},
         )
 
-        for pair in pairs:
+        for pair in symbols:
             ohlcv = await self._exchange.fetch_ohlcv(
                 str(pair),
                 timeframe_str,
@@ -59,7 +60,7 @@ class CCXTProvider(CryptoProvider):
 
     async def get_history(
         self,
-        pairs: List[Pair],
+        symbols: List[Pair],
         # use this (count)
         count: Optional[int]=None,
         # or this (since+until)
@@ -98,14 +99,14 @@ class CCXTProvider(CryptoProvider):
 
         market_frames = [
             MarketFrame(
-                timestamp=-1,
+                timestamp=datetime.fromtimestamp(0),
                 ohlcv={},
             )
             for _ in range(count)
         ]
 
         await self._exchange.load_markets()
-        for pair in pairs:
+        for pair in symbols:
             ohlcv = await self._exchange.fetch_ohlcv(
                 str(pair),
                 timeframe_str,
@@ -132,4 +133,4 @@ class CCXTProvider(CryptoProvider):
                     volume=ohlcv[i][5],
                 )
 
-        return Market(frames=market_frames)
+        return Market(frames=typing.cast(List[MarketFrame | Tuple[MarketFrame, OutputFrame]], market_frames))

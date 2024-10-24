@@ -1,39 +1,42 @@
 import asyncio
+import typing
 import dotenv
 import os
 from typing import List
 from datetime import datetime
 import plotly.graph_objects as go
 
+from models.transaction import Transaction
 from timers.interval import IntervalTimer
 from timers.backtest import BacktestTimer
-from providers.crypto import CryptoProvider
+from providers.provider import Provider
 from providers.ccxt import CCXTProvider
 from providers.mock_crypto import MockCryptoProvider
 from strategies.average_crossover import AverageCrossover
-from models.pair import Pair
-from models.market import Market
+from models.symbol import Pair
+from models.market import FunctionPlot, Log, Market
 
 dotenv.load_dotenv()
 
-API_KEY = os.getenv("BINANCE_API_KEY")
-API_SECRET = os.getenv("BINANCE_API_SECRET")
+API_KEY = typing.cast(str, os.getenv("BINANCE_API_KEY"))
+API_SECRET = typing.cast(str, os.getenv("BINANCE_API_SECRET"))
 
-TIMEFRAME_MINUTES = 5
+TIMEFRAME_MINUTES = 30
 SINCE = datetime(day=7, month=9, year=2024)
 UNTIL = datetime(day=1, month=10, year=2024)
 PAIRS: List[Pair] = [
-    Pair("BTC", "USDT"),
-    Pair("BTC", "USDC"),
-    Pair("BTC", "USDC"),
-    Pair("ETH", "USDT"),
-    Pair("ETH", "USDC"),
-    Pair("BNB", "USDT"),
-    Pair("ADA", "USDT"),
-    Pair("SOL", "USDT"),
-    Pair("XRP", "USDT"),
+    Pair(a="BTC", b="USDT"),
+    Pair(a="BTC", b="USDC"),
+    Pair(a="BTC", b="USDC"),
+    Pair(a="ETH", b="USDT"),
+    Pair(a="ETH", b="USDC"),
+    Pair(a="BNB", b="USDT"),
+    Pair(a="ADA", b="USDT"),
+    Pair(a="SOL", b="USDT"),
+    Pair(a="XRP", b="USDT"),
 ]
 FILENAME = f"/home/apisula/Documents/traderbot/data/{SINCE.day}-{SINCE.month}-{SINCE.year}_{UNTIL.day}-{UNTIL.month}-{UNTIL.year}_{TIMEFRAME_MINUTES}m"
+PLOT_FILENAME = f"/home/apisula/Documents/traderbot/plots/{SINCE.day}-{SINCE.month}-{SINCE.year}_{UNTIL.day}-{UNTIL.month}-{UNTIL.year}_{TIMEFRAME_MINUTES}m_plot"
 
 async def fetch_data():
     ce = CCXTProvider(apikey=API_KEY, secret=API_SECRET)
@@ -47,15 +50,12 @@ async def import_from_file():
     m = Market()
     m.import_from_file(FILENAME)
 
-    m.logs += [(datetime(day=1, month=10, year=2024, hour=8), "Test log")]
-    m.logs += [(datetime(day=2, month=10, year=2024, hour=13), "Other log")]
+    p = Pair(a="ETH", b="USDC")
+    f = m.plot_for_symbol(p, display=False)
 
-    p = Pair("ETH", "USDC")
-    f = m.plot_for_pair(p, display=False)
+    ohlcv = m.get_all_symbol_data(p)
 
-    ohlcv = m.get_all_for_pair(p)
-
-    timestamps = [datetime.fromtimestamp(x[0] // 1000) for x in ohlcv]
+    timestamps = [x[0] for x in ohlcv]
     closes = [x[1].close for x in ohlcv]
 
     fma = [sum(closes[i-10:i])/10 for i in range(10, len(closes))]
@@ -67,10 +67,12 @@ async def import_from_file():
     f.show()
 
 async def backtest():
-    provider: CryptoProvider
+    provider: Provider
 
     history_market = Market()
     history_market.import_from_file(FILENAME)
+
+    resulting_market = Market()
 
     STARTING_INDEX = 0
 
@@ -85,30 +87,31 @@ async def backtest():
     )
     strategy = AverageCrossover(
         provider=provider,
-        pairs=PAIRS,
+        symbols=PAIRS,
         sma_window=50,
         fma_window=10,
         timeframe_minutes=TIMEFRAME_MINUTES,
         jitter=0.0005,
     )
 
-    all_transactions = []
-    all_logs = []
-    all_function_plots = []
+    all_transactions: List[Transaction] = []
+    all_logs: List[Log] = [Log(timestamp=datetime.now(), value="Starting backtest")]
+    all_function_plots: List[FunctionPlot] = []
 
     async for frame in timer:
-        transactions, logs, function_plots = await strategy.execute(frame)
+        output_frame = await strategy.execute(frame)
+        resulting_market.add_frame((frame, output_frame))
 
-        all_transactions += transactions
-        all_logs += logs
-        all_function_plots += function_plots
+        all_transactions += output_frame.transactions
+        all_logs += output_frame.logs
+        all_function_plots += output_frame.function_plots
 
         provider.tick()
         timer.tick()
 
-    p = Pair("ETH", "USDC")
-
-    figure = history_market.plot_for_pair(p, display=False)
+    # for p in PAIRS:
+    p = Pair(a="BTC", b="USDT")
+    figure = resulting_market.plot_for_symbol(p, display=False, include_function_plots=False)
 
     fma_x: List[datetime] = []
     fma_y: List[float] = []
@@ -116,45 +119,56 @@ async def backtest():
     sma_y: List[float] = []
 
     for function_plot in all_function_plots:
-        if function_plot[1] == f"{p} FMA":
-            fma_x.append(function_plot[0])
-            fma_y.append(function_plot[2])
-        elif function_plot[1] == f"{p} SMA":
-            sma_x.append(function_plot[0])
-            sma_y.append(function_plot[2])
+        if function_plot.label == f"{p} FMA":
+            fma_x.append(function_plot.timestamp)
+            fma_y.append(function_plot.value)
+        elif function_plot.label == f"{p} SMA":
+            sma_x.append(function_plot.timestamp)
+            sma_y.append(function_plot.value)
 
     figure.add_trace(go.Scatter(x=fma_x, y=fma_y, name="FMA", line=go.scatter.Line(color="blue")))
     figure.add_trace(go.Scatter(x=sma_x, y=sma_y, name="SMA", line=go.scatter.Line(color="purple")))
 
     for transaction in all_transactions:
-        if transaction.pair != p:
+        if transaction.symbol != p:
             continue
 
-        print(f"{transaction.pair}: {transaction.operation} at {transaction.timestamp} (note: {transaction.notes})")
-        figure.add_vline(
-            x=transaction.timestamp.timestamp() * 1000,
-            line_width=1,
-            line_color="black",
-            annotation_text=f"{transaction.operation.value}<br>{transaction.timestamp.strftime("%H:%M:%S")}",
-            annotation_align="left",
-        )
+        print(f"{transaction.symbol}: {transaction.operation} at {transaction.timestamp} (note: {transaction.notes})")
+        # figure.add_vline(
+        #     x=transaction.timestamp.timestamp() * 1000,
+        #     line_width=1,
+        #     line_color="black",
+        #     annotation_text=f"{transaction.operation.value}<br>{transaction.timestamp.strftime("%H:%M:%S")}",
+        #     annotation_align="left",
+        # )
 
     figure.show()
+
+    # if not os.path.exists(PLOT_FILENAME):
+    #     os.makedirs(PLOT_FILENAME)
+
+    # img_bytes = figure.to_image(format="png", width=3840, height=2160)
+    # img = Image(img_bytes)
+    # figure.write_image(os.path.join(PLOT_FILENAME, f"{str(p).replace("/", "-")}.png"))
+    # img_path = os.path.join(PLOT_FILENAME, f"{str(p).replace('/', '-')}.png")
+    # with open(img_path, "wb") as f:
+    #     f.write(img_bytes)
+    #     print(f"Saved plot to {img_path}")
 
 
 
 async def main():
-    provider: CryptoProvider
+    provider: Provider
 
     provider = CCXTProvider(apikey=API_KEY, secret=API_SECRET)
     timer = IntervalTimer(
         provider=provider,
-        pairs=PAIRS,
+        symbols=PAIRS,
         timeframe_minutes=TIMEFRAME_MINUTES,
     )
     strategy = AverageCrossover(
         provider=provider,
-        pairs=PAIRS,
+        symbols=PAIRS,
         sma_window=50,
         fma_window=10,
         timeframe_minutes=TIMEFRAME_MINUTES,

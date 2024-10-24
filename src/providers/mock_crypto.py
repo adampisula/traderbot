@@ -1,11 +1,12 @@
+from datetime import datetime
 from typing import List, Optional
 
 from models.market import Market, MarketFrame
-from models.pair import Pair
-from providers.crypto import CryptoProvider
+from models.symbol import Pair
+from providers.provider import Provider
 
 
-class MockCryptoProvider(CryptoProvider):
+class MockCryptoProvider(Provider):
     _market: Market
     _index: int
 
@@ -16,16 +17,33 @@ class MockCryptoProvider(CryptoProvider):
     def tick(self):
         self._index += 1
 
+    async def __get_market_frame(self, pairs: List[Pair], index: int) -> MarketFrame:
+        frame_mf_of = self._market._frames[index]
+        mf = frame_mf_of[0] if isinstance(frame_mf_of, tuple) else frame_mf_of
+        return mf
+
     async def get_current(
-        self, pairs: List[Pair]
+        self,
+        symbols: List[Pair]=[],  # unused
+        timeframe_minutes: int=1,
     ) -> MarketFrame:
-        return self._market.frames[self._index]
+        mf = await self.__get_market_frame(symbols, self._index)
+        return mf
 
     async def get_history(
         self,
-        pairs: List[Pair],
+        symbols: List[Pair]=[],
         # use this (count)
         count: Optional[int]=None,
-        timeframe_minutes=1
+        # do NOT use these (since+until)
+        since: Optional[datetime]=None,
+        until: Optional[datetime]=None,
+        timeframe_minutes: int=1,
     ) -> Market:
-        return Market(frames=self._market.frames[-1*count:])
+        if count is None:
+            raise Exception("count is required for MockCryptoProvider.get_history")
+        
+        if since or until:
+            raise NotImplementedError("since and until are not supported for MockCryptoProvider.get_history")
+        
+        return Market(frames=self._market._frames[-1*count:])

@@ -1,14 +1,11 @@
-from typing import AsyncIterator, Protocol, List
-import asyncio
+from typing import AsyncIterator, Protocol
 
-from models.market import MarketFrame
-from models.transaction import Transaction
+from models.market import MarketFrame, OutputFrame
 
 
 class Strategy(Protocol):
     def __init__(self, timer: AsyncIterator[MarketFrame]):
-        pass
+        raise NotImplementedError
 
-    async def execute(self, frame: MarketFrame) -> List[Transaction]:
-        await asyncio.sleep(5)
-        return []
+    async def execute(self, frame: MarketFrame) -> OutputFrame:
+        raise NotImplementedError

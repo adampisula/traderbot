@@ -1,16 +1,16 @@
 from typing import Protocol, List, Optional
 from datetime import datetime
 
-from models.pair import Pair
+from models.symbol import T, Symbol
 from models.market import MarketFrame, Market
 
-class CryptoProvider(Protocol):
-    async def get_current(self, pairs: List[Pair], timeframe_minutes: int) -> MarketFrame:
+class Provider(Protocol):
+    async def get_current(self, symbols: List[Symbol], timeframe_minutes: int) -> MarketFrame:
         raise NotImplemented
 
     async def get_history(
         self,
-        pairs: List[Pair],
+        symbols: List[Symbol],
         # use this (count)
         count: Optional[int]=None,
         # or this (since+until)

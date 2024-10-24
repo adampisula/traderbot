@@ -26,10 +26,13 @@ class BacktestTimer:
 
     async def __anext__(self) -> MarketFrame:
         try:
-            if self._index == len(self._market.frames):
+            if self._index == len(self._market._frames):
                 raise StopIteration
 
-            # return await self._provider.get_current()
-            return self._market.frames[self._index]
+            # return await self._provider.get_current()  # why not this?
+
+            mf_of = self._market._frames[self._index]
+            return mf_of[0] if isinstance(mf_of, tuple) else mf_of
         except StopIteration:
             raise StopAsyncIteration from None
+

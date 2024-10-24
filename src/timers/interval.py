@@ -2,23 +2,24 @@ from datetime import datetime, timedelta
 import asyncio
 from typing import List, Tuple
 
+from models.symbol import Symbol
 from providers.ccxt import CCXTProvider
 from models.market import MarketFrame
 
 
 class IntervalTimer:
     last_run: datetime | None = None
-    _pairs: List[Tuple[str, str]]
+    _symbols: List[Symbol]
 
     def __init__(
         self,
         provider: CCXTProvider,
-        pairs: List[Tuple[str, str]],
+        symbols: List[Symbol],
         timeframe_minutes=1,
     ):
         self._timeframe_minutes = timeframe_minutes
         self._provider = provider
-        self._pairs = pairs
+        self._symbols = symbols
 
     def __aiter__(self):
         return self
@@ -33,7 +34,7 @@ class IntervalTimer:
                     await asyncio.sleep(1)
 
             frame = await self._provider.get_current(
-                self._pairs, timeframe_minutes=self._timeframe_minutes
+                self._symbols, timeframe_minutes=self._timeframe_minutes
             )
             self.last_run = datetime.now()
 
